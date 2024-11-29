@@ -38,11 +38,12 @@ Technical-Challenge---MELI
    cd technical-challenge
    ```
 2. Instala dependencias:
+   Fue usada la version Python 3.10.10.
    ```bash
     pip install -r requirements.txt
    ```
 
-3.	Revisa los notebooks en notebooks/.
+4.	Revisa los notebooks en notebooks/.
 
 ## **Licencia**
 
