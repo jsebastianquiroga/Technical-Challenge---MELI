@@ -13,7 +13,7 @@ Este repositorio contiene las soluciones al desafío técnico presentado para la
 
 ## **Estructura**
 ```plaintext
-Technical-Challenge
+Technical-Challenge---MELI
 ├── notebooks/                 # Notebooks de solución
 ├── data/                      # Datos crudos y procesados
 ├── scripts/                   # Código modular
