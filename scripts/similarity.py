@@ -3,28 +3,33 @@ import unicodedata
 import nltk
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.decomposition import TruncatedSVD
 from itertools import combinations
 from nltk.corpus import stopwords
 from joblib import Parallel, delayed
 import time
 
 class TextSimilarityPipeline:
-    def __init__(self, df, text_column='ITE_ITEM_TITLE', n_results=None, language='portuguese'):
+    def __init__(self, df, text_column='ITE_ITEM_TITLE', n_results=None, language='portuguese', n_components=100):
         """
-        Inicializa el pipeline para calcular la similitud entre textos.
+        Inicializa el pipeline para calcular la similitud entre textos con reducción de dimensionalidad.
         
         Args:
             df (pd.DataFrame): DataFrame que contiene los textos a analizar.
             text_column (str): Nombre de la columna que contiene los textos.
             n_results (int, opcional): Número de resultados más similares a devolver.
             language (str): Idioma para eliminar palabras vacías (stop words).
+            n_components (int): Número de dimensiones para reducir con SVD.
         """
         self.df = df.copy()
         self.text_column = text_column
         self.n_results = n_results
         self.language = language
+        self.n_components = n_components
         self.vectorizer = TfidfVectorizer()
         self.tfidf_matrix = None
+        self.reduced_matrix = None
+        self.similarity_df = None
 
         # Cargar palabras vacías para el idioma especificado
         try:
@@ -67,7 +72,7 @@ class TextSimilarityPipeline:
 
     def create_tfidf_matrix(self):
         """
-        Crea la matriz TF-IDF basada en los textos preprocesados.
+        Crea la matriz TF-IDF basada en los textos preprocesados y aplica SVD para reducir la dimensionalidad.
         
         Returns:
             self: Instancia actual para encadenar métodos.
@@ -80,6 +85,9 @@ class TextSimilarityPipeline:
         processed_texts = self.df['tokens'].apply(' '.join)
         # Crear la matriz TF-IDF
         self.tfidf_matrix = self.vectorizer.fit_transform(processed_texts)
+        # Reducir dimensionalidad con Truncated SVD
+        svd = TruncatedSVD(n_components=self.n_components, random_state=42)
+        self.reduced_matrix = svd.fit_transform(self.tfidf_matrix)
         return self
 
     def calculate_similarity_parallel(self, pair, cosine_sim):
@@ -106,19 +114,22 @@ class TextSimilarityPipeline:
         Returns:
             self: Instancia actual con la tabla de similitud generada.
         """
-        if self.tfidf_matrix is None:
+        if self.reduced_matrix is None:
             raise ValueError("Debe ejecutar create_tfidf_matrix primero")
         
-        # Calcular la matriz de similitudes
-        cosine_sim = cosine_similarity(self.tfidf_matrix)
+        # Calcular la matriz de similitudes en el espacio reducido
+        cosine_sim = cosine_similarity(self.reduced_matrix)
         # Generar combinaciones de índices (pares únicos)
         pairs = list(combinations(range(len(self.df)), 2))
         
         # Calcular las similitudes en paralelo
+        start_time = time.time()
         results = Parallel(n_jobs=-1)(
             delayed(self.calculate_similarity_parallel)(pair, cosine_sim) 
             for pair in pairs
         )
+        parallel_time = time.time() - start_time
+        print(f"Cálculo paralelo completado en {parallel_time:.2f} segundos")
         
         # Crear un DataFrame con los resultados
         self.similarity_df = pd.DataFrame(
@@ -146,7 +157,8 @@ class TextSimilarityPipeline:
             pd.DataFrame: DataFrame con las similitudes calculadas.
         """
         start_time = time.time()  # Iniciar temporizador
-        self.create_tfidf_matrix()  # Crear la matriz TF-IDF
+        self.create_tfidf_matrix()  # Crear la matriz TF-IDF con reducción
         self.calculate_similarities()  # Calcular similitudes
-        print(f"Pipeline ejecutado en {time.time() - start_time:.2f} segundos")
+        total_time = time.time() - start_time
+        print(f"Pipeline ejecutado en {total_time:.2f} segundos")
         return self.similarity_df
