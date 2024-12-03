@@ -192,3 +192,117 @@ class DataPreprocessor:
         self.generate_temporal_features(attributes)
         print("\nPipeline completado.")
         print(f"Dimensiones finales del dataset: {self.df_with_features.shape}")
+        
+
+from sklearn.preprocessing import MinMaxScaler
+from imblearn.over_sampling import SMOTE
+import joblib
+import os
+import pandas as pd
+import numpy as np
+
+class FeatureEngineering:
+    def __init__(self, mode='train', artefacts_path='../artefacts/'):
+        """
+        Inicializa el procesador de datos.
+        
+        Args:
+            mode (str): 'train' para entrenamiento o 'pred' para predicción
+            artefacts_path (str): Ruta donde se guardarán/cargarán los artefactos
+        """
+        self.mode = mode
+        self.artefacts_path = artefacts_path
+        self.scaler = None
+        
+        # Crear directorio de artefactos si no existe
+        os.makedirs(artefacts_path, exist_ok=True)
+        
+        # Si estamos en modo predicción, cargar el scaler
+        if mode == 'pred':
+            self._load_artifacts()
+    
+    def _load_artifacts(self):
+        """Carga los artefactos necesarios para la predicción"""
+        scaler_path = os.path.join(self.artefacts_path, 'scaler.pkl')
+        if not os.path.exists(scaler_path):
+            raise FileNotFoundError(f"No se encontró el scaler en {scaler_path}")
+        self.scaler = joblib.load(scaler_path)
+    
+    def prepare_target_for_prediction(self, df, target='failure', shift_period=1):
+        """
+        Ajusta la variable objetivo para predecir la probabilidad de falla.
+        
+        Args:
+            df (pd.DataFrame): Dataset original
+            target (str): Nombre de la columna objetivo
+            shift_period (int): Número de días hacia adelante para la predicción
+        
+        Returns:
+            pd.DataFrame: Dataset con la variable objetivo ajustada
+        """
+        df = df.copy()
+        df.sort_values(by=['device', 'date'], inplace=True)
+        
+        df[f'{target}_shifted'] = df.groupby('device')[target].shift(-shift_period)
+        df = df.dropna(subset=[f'{target}_shifted'])
+        df[target] = df[f'{target}_shifted']
+        df.drop(columns=[f'{target}_shifted'], inplace=True)
+        
+        return df
+    
+    def process_data(self, df, target='failure', balance_ratio=0.5):
+        """
+        Procesa los datos según el modo (entrenamiento o predicción).
+        
+        Args:
+            df (pd.DataFrame): Dataset a procesar
+            target (str): Nombre de la columna objetivo
+            balance_ratio (float): Ratio de balanceo para SMOTE (solo en modo train)
+        
+        Returns:
+            pd.DataFrame: Dataset procesado
+        """
+        df = df.copy()
+        
+        # Preparar target si está disponible y estamos en modo entrenamiento
+        if target in df.columns and self.mode == 'train':
+            df = self.prepare_target_for_prediction(df, target=target)
+        
+        # Separar columnas
+        auxiliary_columns = df[['device', 'date']]
+        X = df.drop(columns=['device', 'date'] + ([target] if target in df.columns else []))
+        
+        # Procesar valores problemáticos
+        X.replace([np.inf, -np.inf], np.nan, inplace=True)
+        X.fillna(0, inplace=True)
+        
+        # Normalizar datos
+        if self.mode == 'train':
+            self.scaler = MinMaxScaler()
+            X_normalized = self.scaler.fit_transform(X)
+            # Guardar scaler
+            scaler_path = os.path.join(self.artefacts_path, 'scaler.pkl')
+            joblib.dump(self.scaler, scaler_path)
+            print(f"Scaler guardado en: {scaler_path}")
+        else:
+            X_normalized = self.scaler.transform(X)
+        
+        # Balancear datos si estamos en modo entrenamiento y tenemos target
+        if self.mode == 'train' and target in df.columns:
+            y = df[target]
+            smote = SMOTE(random_state=42, sampling_strategy=balance_ratio)
+            X_balanced, y_balanced = smote.fit_resample(X_normalized, y)
+            
+            # Crear DataFrame final
+            df_processed = pd.DataFrame(X_balanced, columns=X.columns)
+            df_processed[target] = y_balanced
+            
+            # Restaurar columnas auxiliares
+            auxiliary_balanced = auxiliary_columns.iloc[:len(df_processed)].reset_index(drop=True)
+            df_processed = pd.concat([df_processed, auxiliary_balanced], axis=1)
+        else:
+            # Para predicción, solo normalizar sin balancear
+            df_processed = pd.DataFrame(X_normalized, columns=X.columns)
+            df_processed = pd.concat([df_processed, auxiliary_columns.reset_index(drop=True)], axis=1)
+        
+        return df_processed
