@@ -34,7 +34,7 @@ Technical-Challenge---MELI
 ## **Instrucciones**
 1. Clona este repositorio:
    ```bash
-   git clone https://github.com/juan-sebastian-quiroga/technical-challenge.git
+   git clone https://github.com/jsebastianquiroga/technical-challenge.git
    cd technical-challenge
    ```
 2. Instala dependencias:
