@@ -7,3 +7,8 @@ scikit-learn
 ipykernel
 chardet
 sparse
+SMOTE
+imblearn
+xgboost
+keras
+tensorflow
