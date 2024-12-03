@@ -17,7 +17,7 @@ Technical-Challenge---MELI
 ├── notebooks/                 # Notebooks de solución
 ├── data/                      # Datos crudos y procesados
 ├── scripts/                   # Código modular
-├── artefacts/                 # Artefactos entrenados
+├── models/                    # Modelos entrenados
 ├── results/                   # Visualizaciones y reportes
 ├── requirements.txt           # Librerías necesarias
 ├── LICENSE                    # Licencia
