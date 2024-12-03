@@ -1,8 +1,9 @@
 pandas
-numpy
+numpy==2.0
 matplotlib
 seaborn
 scipy
 scikit-learn
 ipykernel
 chardet
+sparse

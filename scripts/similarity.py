@@ -1,6 +1,7 @@
 import pandas as pd
 import unicodedata
 import nltk
+import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import TruncatedSVD
@@ -8,6 +9,8 @@ from itertools import combinations
 from nltk.corpus import stopwords
 from joblib import Parallel, delayed
 import time
+from tqdm import tqdm
+
 
 class TextSimilarityPipeline:
     def __init__(self, df, text_column='ITE_ITEM_TITLE', n_results=None, language='portuguese', n_components=100):
@@ -107,45 +110,60 @@ class TextSimilarityPipeline:
         score = cosine_sim[i, j]
         return [title1, title2, score]
 
-    def calculate_similarities(self):
+    def calculate_similarities(self, batch_size=500, threshold= 0.5):
         """
-        Calcula la similitud de coseno entre todos los pares de textos utilizando paralelización.
+        Calcula la similitud de coseno entre todos los pares de textos utilizando 
+        procesamiento por lotes y filtrado por umbral.
         
+        Args:
+            batch_size (int): Tamaño del lote para procesar
+            threshold (float): Umbral mínimo de similitud para guardar
+            
         Returns:
             self: Instancia actual con la tabla de similitud generada.
         """
         if self.reduced_matrix is None:
             raise ValueError("Debe ejecutar create_tfidf_matrix primero")
         
-        # Calcular la matriz de similitudes en el espacio reducido
-        cosine_sim = cosine_similarity(self.reduced_matrix)
-        # Generar combinaciones de índices (pares únicos)
-        pairs = list(combinations(range(len(self.df)), 2))
-        
-        # Calcular las similitudes en paralelo
         start_time = time.time()
-        results = Parallel(n_jobs=-1)(
-            delayed(self.calculate_similarity_parallel)(pair, cosine_sim) 
-            for pair in pairs
-        )
-        parallel_time = time.time() - start_time
-        print(f"Cálculo paralelo completado en {parallel_time:.2f} segundos")
+        n_samples = len(self.df)
+        results = []
         
-        # Crear un DataFrame con los resultados
+        print("Calculando similitudes por lotes...")
+        for i in tqdm(range(0, n_samples, batch_size)):
+            batch_end = min(i + batch_size, n_samples)
+            # Calcular similitud solo para el lote actual
+            batch_similarities = cosine_similarity(
+                self.reduced_matrix[i:batch_end],
+                self.reduced_matrix
+            )
+            
+            # Procesar solo similitudes sobre el umbral
+            for batch_idx, row in enumerate(batch_similarities):
+                abs_idx = i + batch_idx
+                # Solo procesar la mitad superior de la matriz
+                high_similarities = np.where(row[abs_idx+1:] > threshold)[0]
+                
+                for j in high_similarities:
+                    j = j + abs_idx + 1  # Ajustar índice
+                    results.append([
+                        self.df.iloc[abs_idx][self.text_column],
+                        self.df.iloc[j][self.text_column],
+                        row[j]
+                    ])
+        
+        # Crear DataFrame con resultados filtrados
         self.similarity_df = pd.DataFrame(
             results,
             columns=['Término 1', 'Término 2', 'Similitud']
-        )
-        
-        # Ordenar los resultados por similitud descendente
-        self.similarity_df = self.similarity_df.sort_values(
-            by='Similitud',
-            ascending=False
-        )
+        ).sort_values('Similitud', ascending=False)
         
         # Seleccionar solo los n resultados más altos si se especifica
         if self.n_results:
             self.similarity_df = self.similarity_df.head(self.n_results)
+        
+        calculation_time = time.time() - start_time
+        print(f"Cálculo por lotes completado en {calculation_time:.2f} segundos")
         
         return self
 
